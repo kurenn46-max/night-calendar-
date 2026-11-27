@@ -10,6 +10,7 @@ jobs:
   build:
     # Pin to the tested KVM-capable runner image instead of a moving ubuntu-latest.
     runs-on: ubuntu-24.04
+    timeout-minutes: 18
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -38,7 +39,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          gradle --no-daemon :app:assembleDebug :app:testDebugUnitTest 2>&1 | tee -a night-calendar-build.log
+          gradle --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest :app:lintDebug 2>&1 | tee -a night-calendar-build.log
       - name: Verify APK signature and package
         shell: bash
         run: |
@@ -49,23 +50,23 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$apk"
       - name: Enable KVM access
         run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-          echo "KVM device status:"
-          ls -l /dev/kvm || true
-          if [ ! -r /dev/kvm ] || [ ! -w /dev/kvm ]; then
-            echo "::error::KVM unavailable on this runner; emulator smoke test cannot be trusted."
-            exit 1
-          fi
-      - name: Android emulator install and launch smoke test
+          {
+            echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+            sudo udevadm control --reload-rules
+            sudo udevadm trigger --name-match=kvm
+            if [ ! -r /dev/kvm ] || [ ! -w /dev/kvm ]; then
+              echo "::error::KVM unavailable on this runner."
+              exit 1
+            fi
+          } 2>&1 | tee -a night-calendar-build.log
+      - name: Android emulator launch, navigation and synthetic event test
         id: emulator_smoke
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
           arch: x86_64
           emulator-boot-timeout: 600
-          script: bash scripts/android_smoke.sh
+          script: bash -o pipefail -c 'bash scripts/android_smoke.sh 2>&1 | tee -a night-calendar-build.log'
       - name: Classify build result
         if: always()
         shell: bash
@@ -85,6 +86,8 @@ jobs:
           path: |
             night-calendar-build.log
             night-core-diagnosis.json
+            night-calendar-emulator.log
+            app/build/test-results/testDebugUnitTest/TEST-*.xml
           if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         with:
