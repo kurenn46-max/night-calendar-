@@ -128,5 +128,37 @@ class RepairTests(unittest.TestCase):
             self.assertEqual(workflow.read_text(), BASE)
 
 
+    def test_untrusted_artifact_fails_closed(self):
+        import json
+        import tempfile
+        samples = ("", "{broken", "[]", '"string"', '{"status":"failed","category":["android-sdk"],"stage":"sdk","evidence":[]}', "x" * 70000)
+        with tempfile.TemporaryDirectory() as d:
+            source = Path(d) / "diagnosis.json"
+            for sample in samples:
+                source.write_text(sample, encoding="utf-8")
+                report = module.load_diagnosis(source)
+                self.assertEqual(report["category"], "unknown")
+                changed, reason = module.plan_repair(report, BASE)
+                self.assertIsNone(changed)
+
+    def test_valid_failure_artifact_survives_validation(self):
+        import json
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            source = Path(d) / "diagnosis.json"
+            source.write_text(json.dumps({"status":"failed","category":"android-sdk",
+                "stage":"sdk","evidence":["NIGHT_CORE_ERROR: sdkmanager missing"]}), encoding="utf-8")
+            changed, rule = module.plan_repair(module.load_diagnosis(source), BASE)
+            self.assertEqual(rule, "sdkmanager-path-fallback")
+            self.assertIsNotNone(changed)
+
+    def test_missing_artifact_is_not_repaired(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            report = module.load_diagnosis(Path(d) / "missing.json")
+            self.assertEqual(report["category"], "unknown")
+            self.assertEqual(report["stage"], "unknown")
+
+
 if __name__ == '__main__':
     unittest.main()
