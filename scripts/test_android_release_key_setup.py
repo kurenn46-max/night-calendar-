@@ -54,6 +54,17 @@ class AndroidReleaseKeySetupTests(unittest.TestCase):
         self.assertEqual(SCRIPT.count('-R "$repo" -e "$environment"'), 5)
         self.assertIn('fingerprint_compact', SCRIPT)
 
+    def test_main_only_environment_policy_precedes_secret_upload(self):
+        self.assertIn(
+            '"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}',
+            SCRIPT,
+        )
+        self.assertIn("-f name=main -f type=branch", SCRIPT)
+        self.assertIn('approved_branches" != "main"', SCRIPT)
+        self.assertIn("Existing environment protection rules must never be overwritten", SCRIPT)
+        self.assertLess(SCRIPT.index("Checking GitHub release environment"),
+                        SCRIPT.index("gh secret set NIGHT_CALENDAR_KEYSTORE_B64"))
+
     def test_no_automatic_build_or_release(self):
         self.assertNotIn("gh workflow run", SCRIPT)
         self.assertNotIn("gh release create", SCRIPT)
