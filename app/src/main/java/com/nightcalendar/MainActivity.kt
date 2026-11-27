@@ -36,13 +36,13 @@ class MainActivity : Activity() {
             setBackgroundColor(Color.WHITE)
         }
         val navigation = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
-        val previous = Button(this).apply { text = "‹"; setOnClickListener { month = month.minusMonths(1); render() } }
+        val previous = Button(this).apply { text = "‹"; setOnClickListener { moveMonth(-1) } }
         heading = TextView(this).apply {
             textSize = 23f
             gravity = Gravity.CENTER
             setTextColor(Color.BLACK)
         }
-        val next = Button(this).apply { text = "›"; setOnClickListener { month = month.plusMonths(1); render() } }
+        val next = Button(this).apply { text = "›"; setOnClickListener { moveMonth(1) } }
         navigation.addView(previous)
         navigation.addView(heading, LinearLayout.LayoutParams(0, -2, 1f))
         navigation.addView(next)
@@ -81,6 +81,12 @@ class MainActivity : Activity() {
             setTextColor(Color.DKGRAY)
         })
         setContentView(root)
+        render()
+    }
+
+    private fun moveMonth(delta: Long) {
+        month = month.plusMonths(delta)
+        selectedDate = month.atDay(selectedDate.dayOfMonth.coerceAtMost(month.lengthOfMonth()))
         render()
     }
 
