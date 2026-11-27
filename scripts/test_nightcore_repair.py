@@ -85,5 +85,48 @@ class RepairTests(unittest.TestCase):
         self.assertIsNotNone(amended)
 
 
+    def test_cli_end_to_end_uses_real_workflow_copy(self):
+        """Simulate artifact JSON -> CLI -> exactly one approved workflow patch."""
+        import json
+        import subprocess
+        import sys
+        import tempfile
+        actual = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "android.yml").read_text()
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            workflow = root / "android.yml"
+            diagnosis = root / "diagnosis.json"
+            result = root / "result.json"
+            workflow.write_text(actual, encoding="utf-8")
+            diagnosis.write_text(json.dumps({"status": "failed", "stage": "sdk", "category": "android-sdk",
+                "evidence": ["NIGHT_CORE_ERROR: sdkmanager missing"]}), encoding="utf-8")
+            subprocess.run([sys.executable, str(Path(__file__).parent / "nightcore_repair.py"),
+                "--diagnosis", str(diagnosis), "--workflow", str(workflow), "--result", str(result)],
+                check=True, capture_output=True, text=True)
+            report = json.loads(result.read_text(encoding="utf-8"))
+            self.assertTrue(report["proposed"])
+            self.assertEqual(report["rule"], "sdkmanager-path-fallback")
+            self.assertEqual(workflow.read_text(), actual.replace(module.OLD_SDK, module.NEW_SDK, 1))
+
+    def test_cli_unknown_failure_does_not_modify_workflow(self):
+        import json
+        import subprocess
+        import sys
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            workflow = root / "android.yml"
+            diagnosis = root / "diagnosis.json"
+            result = root / "result.json"
+            workflow.write_text(BASE, encoding="utf-8")
+            diagnosis.write_text(json.dumps({"status": "failed", "stage": "build", "category": "kotlin-compile",
+                "evidence": ["Unresolved reference"]}), encoding="utf-8")
+            subprocess.run([sys.executable, str(Path(__file__).parent / "nightcore_repair.py"),
+                "--diagnosis", str(diagnosis), "--workflow", str(workflow), "--result", str(result)],
+                check=True, capture_output=True, text=True)
+            self.assertFalse(json.loads(result.read_text(encoding="utf-8"))["proposed"])
+            self.assertEqual(workflow.read_text(), BASE)
+
+
 if __name__ == '__main__':
     unittest.main()
