@@ -5,16 +5,21 @@ import android.content.pm.PackageManager
 import android.app.Activity
 import android.graphics.Color
 import android.os.Bundle
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.style.RelativeSizeSpan
 import android.view.Gravity
+import android.view.View
 import android.content.Intent
 import android.provider.CalendarContract
 import java.time.ZoneId
-import android.view.View
 import android.widget.Button
 import android.widget.GridLayout
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
-import java.time.DayOfWeek
+import com.nightcalendar.core.CalendarDayStyle
+import com.nightcalendar.core.Rokuyo
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
@@ -50,13 +55,21 @@ class MainActivity : Activity() {
             setBackgroundColor(nightBackgroundColor)
         }
         val navigation = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
-        val previous = Button(this).apply { text = "‹"; setOnClickListener { moveMonth(-1) } }
+        val previous = Button(this).apply {
+            text = "‹"
+            contentDescription = "前の月"
+            setOnClickListener { moveMonth(-1) }
+        }
         heading = TextView(this).apply {
             textSize = 23f
             gravity = Gravity.CENTER
             setTextColor(nightForegroundColor)
         }
-        val next = Button(this).apply { text = "›"; setOnClickListener { moveMonth(1) } }
+        val next = Button(this).apply {
+            text = "›"
+            contentDescription = "次の月"
+            setOnClickListener { moveMonth(1) }
+        }
         navigation.addView(previous)
         navigation.addView(heading, LinearLayout.LayoutParams(0, -2, 1f))
         navigation.addView(next)
@@ -70,6 +83,11 @@ class MainActivity : Activity() {
         })
         calendar = GridLayout(this).apply { columnCount = 7 }
         root.addView(calendar)
+        holidayStatus = TextView(this).apply {
+            textSize = 13f
+            setTextColor(nightSecondaryColor)
+        }
+        root.addView(holidayStatus)
         root.addView(Button(this).apply {
             text = "端末のカレンダーを読み込む"
             setOnClickListener {
@@ -98,13 +116,10 @@ class MainActivity : Activity() {
                 }
             }
         })
-        holidayStatus = TextView(this).apply {
-            text = ""
-            textSize = 13f
-            setTextColor(nightSecondaryColor)
-        }
-        root.addView(holidayStatus)
-        setContentView(root)
+        setContentView(ScrollView(this).apply {
+            isFillViewport = true
+            addView(root)
+        })
         render()
     }
 
@@ -121,7 +136,11 @@ class MainActivity : Activity() {
 
     private fun render() {
         heading.text = month.format(DateTimeFormatter.ofPattern("yyyy年 M月", japanese))
-        holidayStatus.text = if (JapanHolidays.isSupported(month.year)) "六曜は開発中です" else "祝日データ対象外（2026〜2027年）・六曜は開発中です"
+        holidayStatus.text = listOfNotNull(
+            "祝日データ対象外（2026〜2027年）".takeUnless { JapanHolidays.isSupported(month.year) },
+            "六曜データ対象外（2025〜2027年）".takeUnless { month.year in Rokuyo.supportedYears },
+        ).joinToString("\n")
+        holidayStatus.visibility = if (holidayStatus.text.isEmpty()) View.GONE else View.VISIBLE
         calendar.removeAllViews()
         eventButtons.removeAllViews()
         eventSummary.text = if (checkSelfPermission(Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED) {
@@ -152,16 +171,16 @@ class MainActivity : Activity() {
             }
         } else "カレンダーのアクセス許可が必要です"
         val headers = listOf("日", "月", "火", "水", "木", "金", "土")
+        val today = LocalDate.now()
         for ((index, name) in headers.withIndex()) {
-            addCell(name, index, false)
+            addCell(name, index, today)
         }
         val firstOffset = month.atDay(1).dayOfWeek.value % 7
-        val today = LocalDate.now()
         for (slot in 0 until 42) {
             val date = month.atDay(1).plusDays((slot - firstOffset).toLong())
             val inMonth = YearMonth.from(date) == month
             val label = if (inMonth) date.dayOfMonth.toString() else ""
-            addCell(label, slot % 7, inMonth && date == today, if (inMonth) date else null)
+            addCell(label, slot % 7, today, date.takeIf { inMonth })
         }
     }
 
@@ -175,18 +194,30 @@ class MainActivity : Activity() {
         if (requestCode == 100) render()
     }
 
-    private fun addCell(label: String, column: Int, today: Boolean, date: LocalDate? = null) {
+    private fun addCell(label: String, column: Int, today: LocalDate, date: LocalDate? = null) {
+        val holiday = date?.let(JapanHolidays::isHoliday) ?: false
+        val rokuyo = date?.let(Rokuyo::on)?.rokuyo?.label
+        val day = date?.let { CalendarDayStyle.dayUi(it, today, holiday) }
+        val tone = day?.tone
+        val isToday = day?.isToday == true
+        val inset = (4 * resources.displayMetrics.density).toInt()
         val cell = TextView(this).apply {
-            text = label
-            textSize = if (today) 22f else 18f
+            text = if (rokuyo == null) label else SpannableString("$label\n$rokuyo").apply {
+                setSpan(RelativeSizeSpan(0.72f), label.length + 1, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+            if (date != null) {
+                contentDescription = listOfNotNull(date.toString(), rokuyo, "祝日・休日".takeIf { holiday }).joinToString(" ")
+            }
+            textSize = if (isToday) 22f else 18f
             gravity = Gravity.CENTER
-            setPadding(3, 17, 3, 17)
+            setPadding(0, inset, 0, inset)
+            minHeight = if (date != null || label.isEmpty()) (48 * resources.displayMetrics.density).toInt() else 0
             setTextColor(when {
-                column == 0 || (date != null && JapanHolidays.isHoliday(date)) -> if (dark) Color.rgb(255, 145, 145) else Color.rgb(195, 45, 45)
-                column == 6 -> if (dark) Color.rgb(145, 185, 255) else Color.rgb(35, 95, 190)
+                tone == CalendarDayStyle.DayTone.HOLIDAY_RED || (date == null && column == 0) -> if (dark) Color.rgb(255, 145, 145) else Color.rgb(195, 45, 45)
+                tone == CalendarDayStyle.DayTone.SATURDAY_BLUE || (date == null && column == 6) -> if (dark) Color.rgb(145, 185, 255) else Color.rgb(35, 95, 190)
                 else -> nightForegroundColor
             })
-            if (today) setBackgroundColor(if (dark) Color.rgb(90, 65, 20) else Color.rgb(255, 235, 180))
+            if (isToday) setBackgroundColor(if (dark) Color.rgb(90, 65, 20) else Color.rgb(255, 235, 180))
             else if (date != null && date == selectedDate) setBackgroundColor(if (dark) Color.rgb(35, 55, 90) else Color.rgb(220, 235, 255))
             if (date != null) setOnClickListener { selectedDate = date; render() }
         }
