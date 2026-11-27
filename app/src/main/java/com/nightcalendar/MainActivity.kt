@@ -28,26 +28,45 @@ class MainActivity : Activity() {
     private lateinit var eventSummary: TextView
     private lateinit var eventButtons: LinearLayout
     private val japanese = Locale.JAPAN
+    private var dark = false
+    private val nightForegroundColor get() = if (dark) Color.rgb(235, 235, 235) else Color.BLACK
+    private val nightSecondaryColor get() = if (dark) Color.rgb(190, 190, 190) else Color.DKGRAY
+    private val nightBackgroundColor get() = if (dark) Color.rgb(24, 24, 28) else Color.WHITE
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        dark = getPreferences(MODE_PRIVATE).getBoolean("dark", 
+            resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK ==
+                android.content.res.Configuration.UI_MODE_NIGHT_YES)
+        savedInstanceState?.getString("selectedDate")?.let {
+            selectedDate = LocalDate.parse(it)
+            month = YearMonth.from(selectedDate)
+        }
+        setTheme(if (dark) android.R.style.Theme_Material_NoActionBar else android.R.style.Theme_Material_Light_NoActionBar)
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(16, 28, 16, 12)
-            setBackgroundColor(Color.WHITE)
+            setBackgroundColor(nightBackgroundColor)
         }
         val navigation = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
         val previous = Button(this).apply { text = "‹"; setOnClickListener { moveMonth(-1) } }
         heading = TextView(this).apply {
             textSize = 23f
             gravity = Gravity.CENTER
-            setTextColor(Color.BLACK)
+            setTextColor(nightForegroundColor)
         }
         val next = Button(this).apply { text = "›"; setOnClickListener { moveMonth(1) } }
         navigation.addView(previous)
         navigation.addView(heading, LinearLayout.LayoutParams(0, -2, 1f))
         navigation.addView(next)
         root.addView(navigation)
+        root.addView(Button(this).apply {
+            text = if (dark) "ライト表示に切替" else "ダーク表示に切替"
+            setOnClickListener {
+                getPreferences(MODE_PRIVATE).edit().putBoolean("dark", !dark).apply()
+                recreate()
+            }
+        })
         calendar = GridLayout(this).apply { columnCount = 7 }
         root.addView(calendar)
         root.addView(Button(this).apply {
@@ -60,7 +79,7 @@ class MainActivity : Activity() {
         })
         eventSummary = TextView(this).apply {
             textSize = 14f
-            setTextColor(Color.DKGRAY)
+            setTextColor(nightSecondaryColor)
             setPadding(8, 16, 8, 8)
         }
         root.addView(eventSummary)
@@ -81,10 +100,15 @@ class MainActivity : Activity() {
         root.addView(TextView(this).apply {
             text = "六曜・祝日判定は開発中です"
             textSize = 13f
-            setTextColor(Color.DKGRAY)
+            setTextColor(nightSecondaryColor)
         })
         setContentView(root)
         render()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString("selectedDate", selectedDate.toString())
+        super.onSaveInstanceState(outState)
     }
 
     private fun moveMonth(delta: Long) {
@@ -155,12 +179,12 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
             setPadding(3, 17, 3, 17)
             setTextColor(when (column) {
-                0 -> Color.rgb(195, 45, 45)
-                6 -> Color.rgb(35, 95, 190)
-                else -> Color.BLACK
+                0 -> if (dark) Color.rgb(255, 145, 145) else Color.rgb(195, 45, 45)
+                6 -> if (dark) Color.rgb(145, 185, 255) else Color.rgb(35, 95, 190)
+                else -> nightForegroundColor
             })
-            if (today) setBackgroundColor(Color.rgb(255, 235, 180))
-            else if (date != null && date == selectedDate) setBackgroundColor(Color.rgb(220, 235, 255))
+            if (today) setBackgroundColor(if (dark) Color.rgb(90, 65, 20) else Color.rgb(255, 235, 180))
+            else if (date != null && date == selectedDate) setBackgroundColor(if (dark) Color.rgb(35, 55, 90) else Color.rgb(220, 235, 255))
             if (date != null) setOnClickListener { selectedDate = date; render() }
         }
         calendar.addView(cell, GridLayout.LayoutParams().apply {
