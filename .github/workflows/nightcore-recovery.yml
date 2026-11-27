@@ -20,6 +20,8 @@ jobs:
       github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      repair_branch: ${{ steps.publish.outputs.repair_branch }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -62,7 +64,8 @@ jobs:
           else
             echo 'proposed=false' >> "$GITHUB_OUTPUT"
           fi
-      - name: Open review-only repair PR and trigger branch CI
+      - name: Open review-only repair PR
+        id: publish
         if: steps.proposal.outputs.proposed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -94,10 +97,10 @@ jobs:
           EOF
           if gh pr create --base main --head "$BRANCH" --title "NIGHT CORE: review SDK path fallback" --body-file "$RUNNER_TEMP/repair-pr.md"; then
             echo "Repair PR created: $BRANCH" >> "$GITHUB_STEP_SUMMARY"
+            echo "repair_branch=$BRANCH" >> "$GITHUB_OUTPUT"
           else
             echo 'PR creation unavailable; branch is preserved for review.' >> "$GITHUB_STEP_SUMMARY"
           fi
-          gh workflow run android.yml --ref "$BRANCH" || echo 'Branch CI dispatch unavailable; manual approval may be required.' >> "$GITHUB_STEP_SUMMARY"
       - name: Open deduplicated diagnosis issue when no safe patch
         if: steps.proposal.outputs.proposed == 'false'
         env:
@@ -125,3 +128,25 @@ jobs:
               f.write('- No automatic code changes made.\n')
           PY
           gh issue create --title "$TITLE" --body-file "$RUNNER_TEMP/triage.md"
+
+  dispatch_review_ci:
+    name: Trigger review-only repair CI
+    needs: recover
+    if: needs.recover.outputs.repair_branch != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Request Android APK CI on proposed repair branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          REPAIR_BRANCH: ${{ needs.recover.outputs.repair_branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$REPAIR_BRANCH" =~ ^nightcore/sdk-fallback-[a-f0-9]{12}$ ]]
+          gh workflow run android.yml --ref "$REPAIR_BRANCH"
+          echo "Android APK review build requested on $REPAIR_BRANCH" >> "$GITHUB_STEP_SUMMARY"
