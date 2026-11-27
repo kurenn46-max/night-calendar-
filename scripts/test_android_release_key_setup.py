@@ -50,8 +50,9 @@ class AndroidReleaseKeySetupTests(unittest.TestCase):
             "NIGHT_CALENDAR_EXPECTED_CERT_SHA256",
         ):
             self.assertIn('gh secret set ' + name, SCRIPT)
-        self.assertEqual(SCRIPT.count('gh secret set NIGHT_CALENDAR_'), 5)
-        self.assertEqual(SCRIPT.count('-R "$repo" -e "$environment"'), 5)
+        secret_calls = [line for line in SCRIPT.splitlines() if " | gh secret set " in line]
+        self.assertEqual(len(secret_calls), 5)
+        self.assertTrue(all('-R "$repo" -e "$environment"' in line for line in secret_calls))
         self.assertIn('fingerprint_compact', SCRIPT)
 
     def test_main_only_environment_policy_precedes_secret_upload(self):
