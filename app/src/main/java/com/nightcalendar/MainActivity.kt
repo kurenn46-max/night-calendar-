@@ -6,6 +6,9 @@ import android.app.Activity
 import android.graphics.Color
 import android.os.Bundle
 import android.view.Gravity
+import android.content.Intent
+import android.provider.CalendarContract
+import java.time.ZoneId
 import android.view.View
 import android.widget.Button
 import android.widget.GridLayout
@@ -19,6 +22,7 @@ import java.util.Locale
 
 class MainActivity : Activity() {
     private var month: YearMonth = YearMonth.now()
+    private var selectedDate: LocalDate = LocalDate.now()
     private lateinit var heading: TextView
     private lateinit var calendar: GridLayout
     private lateinit var eventSummary: TextView
@@ -59,6 +63,18 @@ class MainActivity : Activity() {
             setPadding(8, 16, 8, 8)
         }
         root.addView(eventSummary)
+        root.addView(Button(this).apply {
+            text = "選択日の予定を追加"
+            setOnClickListener {
+                val start = selectedDate.atTime(9, 0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                val intent = Intent(Intent.ACTION_INSERT, CalendarContract.Events.CONTENT_URI)
+                    .putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, start)
+                    .putExtra(CalendarContract.EXTRA_EVENT_END_TIME, start + 3600000L)
+                try { startActivity(intent) } catch (e: android.content.ActivityNotFoundException) {
+                    android.widget.Toast.makeText(this@MainActivity, "カレンダーアプリが見つかりません", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }
+        })
         root.addView(TextView(this).apply {
             text = "六曜・祝日判定は開発中です"
             textSize = 13f
@@ -73,9 +89,9 @@ class MainActivity : Activity() {
         calendar.removeAllViews()
         eventSummary.text = if (checkSelfPermission(Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED) {
             try {
-                val events = DeviceCalendarEvents.onDate(this, LocalDate.now())
-                if (events.isEmpty()) "今日の予定はありません"
-                else "今日の予定: " + events.take(4).joinToString(" / ") { it.title }
+                val events = DeviceCalendarEvents.onDate(this, selectedDate)
+                if (events.isEmpty()) "$selectedDate の予定はありません"
+                else "$selectedDate の予定: " + events.take(4).joinToString(" / ") { it.title }
             } catch (e: RuntimeException) {
                 "予定を読み込めませんでした"
             }
@@ -90,8 +106,13 @@ class MainActivity : Activity() {
             val date = month.atDay(1).plusDays((slot - firstOffset).toLong())
             val inMonth = YearMonth.from(date) == month
             val label = if (inMonth) date.dayOfMonth.toString() else ""
-            addCell(label, slot % 7, inMonth && date == today)
+            addCell(label, slot % 7, inMonth && date == today, if (inMonth) date else null)
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::eventSummary.isInitialized) render()
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
@@ -99,7 +120,7 @@ class MainActivity : Activity() {
         if (requestCode == 100) render()
     }
 
-    private fun addCell(label: String, column: Int, today: Boolean) {
+    private fun addCell(label: String, column: Int, today: Boolean, date: LocalDate? = null) {
         val cell = TextView(this).apply {
             text = label
             textSize = if (today) 22f else 18f
@@ -111,6 +132,8 @@ class MainActivity : Activity() {
                 else -> Color.BLACK
             })
             if (today) setBackgroundColor(Color.rgb(255, 235, 180))
+            else if (date != null && date == selectedDate) setBackgroundColor(Color.rgb(220, 235, 255))
+            if (date != null) setOnClickListener { selectedDate = date; render() }
         }
         calendar.addView(cell, GridLayout.LayoutParams().apply {
             width = 0
