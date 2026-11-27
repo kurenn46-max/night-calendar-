@@ -32,6 +32,17 @@ environment with reviewer restrictions:
 For example, on a trusted machine: `base64 < nightcalendar-release.jks | tr -d '\n'`.
 **Treat this result as a secret.** Do not paste it in a conversation or commit.
 
+## No-secret signing rehearsal (automated in PRs)
+
+The release-gate pull request has an isolated, read-only CI job that builds
+`:app:assembleRelease` and uses a **new disposable test-only key** to exercise
+`scripts/sign_release_candidate.sh`, checks signature/package/portable SHA256SUMS,
+and verifies a deliberately mismatched certificate is rejected. The job deletes
+the disposable key and candidate afterward. **This cannot replace the owner's
+long-lived release signing key** and does not upload a public APK.
+
+Do not attempt a real signed candidate until the rehearsal job is green.
+
 ## Produce a signed candidate
 
 1. Confirm `main` has green Android build, unit tests, lint and emulator UI tests.
