@@ -37,6 +37,8 @@ def plan_repair(diagnosis: dict, workflow: str) -> tuple[str | None, str]:
         return None, "invalid-category"
     if category != "android-sdk":
         return None, "no-verified-playbook"
+    if diagnosis.get("stage") != "sdk":
+        return None, "wrong-failing-stage"
     evidence = diagnosis.get("evidence", [])
     if not isinstance(evidence, list) or not any(
         isinstance(line, str) and "sdkmanager" in line.lower() for line in evidence
