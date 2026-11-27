@@ -15,12 +15,16 @@ RULES = (
     ("kotlin-compile", r"Compilation error|:compile.*Kotlin FAILED|e: file://|Unresolved reference"),
     ("android-resources", r"Android resource linking failed|:process.*Resources FAILED|AAPT: error"),
     ("unit-tests", r"There were failing tests|:test.*UnitTest FAILED|AssertionError"),
+    ("android-emulator-host", r"KVM unavailable on this runner|Failed to boot emulator"),
+    ("android-adb-transport", r"NIGHT CALENDAR QA: adb failed|device offline|no emulators found"),
+    ("android-apk-install", r"NIGHT CALENDAR QA: install failed|INSTALL_FAILED_"),
+    ("android-ui-smoke", r"NIGHT CALENDAR QA: ui-smoke failed|INSTRUMENTATION_RESULT: calendar_smoke=failed"),
     ("artifact-upload", r"no files were found|upload-artifact.*failed"),
 )
 
 
 def diagnose(log: str, success: bool = False) -> dict:
-    if success:
+    if success and log.strip():
         return {"status": "passed", "category": "none", "evidence": [], "requires_review": False}
     lines = log.splitlines()
     for category, pattern in RULES:
@@ -37,7 +41,11 @@ def main() -> None:
     parser.add_argument("--success", action="store_true")
     args = parser.parse_args()
     log_path = Path(args.log)
-    report = diagnose(log_path.read_text(errors="replace") if log_path.exists() else "", args.success)
+    try:
+        log = log_path.read_text(encoding="utf-8", errors="replace")
+    except FileNotFoundError:
+        log = ""
+    report = diagnose(log, args.success)
     Path(args.out).write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(f"NIGHT CORE CI: {report['status']} ({report['category']})")
 
