@@ -22,30 +22,53 @@ jobs:
           set -o pipefail
           {
             echo "ANDROID_HOME=$ANDROID_HOME"
-            test -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+            test -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" || { echo "NIGHT_CORE_ERROR: sdkmanager missing"; exit 1; }
             yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
             "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"
           } 2>&1 | tee night-calendar-build.log
       - name: Install Gradle
+        id: gradle_setup
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
       - name: Verify NIGHT CORE diagnostics
-        run: python3 -m unittest discover -s scripts -p 'test_ci_diagnose.py' -v
+        id: diagnostic_tests
+        run: python3 -m unittest discover -s scripts -p 'test_*.py' -v
       - name: Build debug APK and test
         id: android_build
         shell: bash
         run: |
           set -o pipefail
           gradle --no-daemon :app:assembleDebug :app:testDebugUnitTest 2>&1 | tee -a night-calendar-build.log
-      - name: Classify build result
+      - name: Upload APK only after successful build
+        if: steps.android_build.outcome == 'success'
+        id: apk_upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: night-calendar-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+      - name: Classify build result by actual failing stage
         if: always()
         shell: bash
         run: |
-          if [ "${{ steps.android_build.outcome }}" = "success" ]; then
+          if [ "${{ steps.android_sdk.outcome }}" != 'success' ]; then
+            STAGE=sdk
+          elif [ "${{ steps.gradle_setup.outcome }}" != 'success' ]; then
+            STAGE=gradle-setup
+          elif [ "${{ steps.diagnostic_tests.outcome }}" != 'success' ]; then
+            STAGE=diagnostic-tests
+          elif [ "${{ steps.android_build.outcome }}" != 'success' ]; then
+            STAGE=build
+          elif [ "${{ steps.apk_upload.outcome }}" != 'success' ]; then
+            STAGE=apk-upload
+          else
+            STAGE=complete
+          fi
+          if [ "$STAGE" = complete ]; then
             python3 scripts/ci_diagnose.py --log night-calendar-build.log --out night-core-diagnosis.json --success
           else
-            python3 scripts/ci_diagnose.py --log night-calendar-build.log --out night-core-diagnosis.json
+            python3 scripts/ci_diagnose.py --log night-calendar-build.log --out night-core-diagnosis.json --stage "$STAGE"
           fi
           cat night-core-diagnosis.json >> "$GITHUB_STEP_SUMMARY"
       - name: Upload diagnostics even on failure
@@ -57,8 +80,3 @@ jobs:
             night-calendar-build.log
             night-core-diagnosis.json
           if-no-files-found: warn
-      - uses: actions/upload-artifact@v4
-        with:
-          name: night-calendar-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
