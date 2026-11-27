@@ -17,10 +17,14 @@ class JapanHolidaysTest {
         assertTrue(JapanHolidays.isSupported(2027))
         assertFalse(JapanHolidays.isSupported(2028))
     }
-    @Test fun annualCounts() {
-        for ((year, count) in listOf(2026 to 18, 2027 to 17)) {
+    @Test fun everySupportedDateMatchesCabinetOfficeCsv() {
+        val official = requireNotNull(javaClass.getResourceAsStream("/cao-holidays-2026-2027.txt"))
+            .bufferedReader(Charsets.UTF_8).useLines { lines -> lines.map(LocalDate::parse).toSet() }
+        assertEquals(35, official.size)
+        val actual = (2026..2027).flatMap { year ->
             val start = LocalDate.of(year, 1, 1)
-            assertEquals(count, (0 until start.lengthOfYear()).count { JapanHolidays.isHoliday(start.plusDays(it.toLong())) })
-        }
+            (0 until start.lengthOfYear()).map { start.plusDays(it.toLong()) }.filter(JapanHolidays::isHoliday)
+        }.toSet()
+        assertEquals(official, actual)
     }
 }
