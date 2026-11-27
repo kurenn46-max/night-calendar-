@@ -31,6 +31,7 @@ class MainActivity : Activity() {
     private lateinit var heading: TextView
     private lateinit var calendar: GridLayout
     private lateinit var eventSummary: TextView
+    private lateinit var deviceDiagnosticStatus: TextView
     private lateinit var holidayStatus: TextView
     private lateinit var eventButtons: LinearLayout
     private val japanese = Locale.JAPAN
@@ -96,6 +97,21 @@ class MainActivity : Activity() {
                 else render()
             }
         })
+        root.addView(Button(this).apply {
+            text = "端末診断（送信なし）"
+            contentDescription = "端末内だけでカレンダーの読み込み状態を診断"
+            setOnClickListener {
+                deviceDiagnosticStatus.text = DeviceCalendarDiagnostics.inspect(this@MainActivity, selectedDate)
+                deviceDiagnosticStatus.visibility = View.VISIBLE
+            }
+        })
+        deviceDiagnosticStatus = TextView(this).apply {
+            textSize = 14f
+            setTextColor(nightSecondaryColor)
+            setPadding(8, 8, 8, 8)
+            visibility = View.GONE
+        }
+        root.addView(deviceDiagnosticStatus)
         eventSummary = TextView(this).apply {
             textSize = 14f
             setTextColor(nightSecondaryColor)
@@ -135,6 +151,9 @@ class MainActivity : Activity() {
     }
 
     private fun render() {
+        if (::deviceDiagnosticStatus.isInitialized && deviceDiagnosticStatus.visibility == View.VISIBLE) {
+            deviceDiagnosticStatus.text = DeviceCalendarDiagnostics.inspect(this, selectedDate)
+        }
         heading.text = month.format(DateTimeFormatter.ofPattern("yyyy年 M月", japanese))
         holidayStatus.text = listOfNotNull(
             "祝日データ対象外（2026〜2027年）".takeUnless { JapanHolidays.isSupported(month.year) },
