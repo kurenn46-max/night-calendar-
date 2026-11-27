@@ -1,0 +1,142 @@
+name: NIGHT CALENDAR Verified Release (owner-confirmed)
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/verified-release.yml'
+      - 'scripts/verify_release_candidate.py'
+      - 'scripts/test_release_publication.py'
+  workflow_dispatch:
+    inputs:
+      candidate_run_id:
+        description: 'Successful MAIN signed-candidate workflow run ID (not QA run)'
+        required: true
+        type: string
+      tag:
+        description: 'Exact version matching signed APK, for example v0.1.0'
+        required: true
+        type: string
+      expected_apk_sha256:
+        description: 'Exact 64-character SHA256 from signed candidate SHA256SUMS.txt'
+        required: true
+        type: string
+      signed_device_acceptance:
+        description: 'After testing the SAME signed APK on physical Android: type SIGNED_APK_TESTED'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  policy:
+    name: Verify fail-closed publication checks (no secrets)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tamper and release provenance tests
+        run: python3 -m unittest discover -s scripts -p 'test_release_publication.py' -v
+
+  publish:
+    name: Publish same reviewed owner-signed candidate
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'kurenn46-max'
+    needs: policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    # Configure owner approval / allowed branches in GitHub Settings BEFORE using.
+    environment: release-publication
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+      RELEASE_TAG: ${{ inputs.tag }}
+      OWNER_APPROVED_HASH: ${{ inputs.expected_apk_sha256 }}
+      SIGNED_DEVICE_ACCEPTANCE: ${{ inputs.signed_device_acceptance }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require explicit physical-device acceptance and valid inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$CANDIDATE_RUN_ID" =~ ^[0-9]{1,16}$ ]] || { echo "::error::Invalid run ID"; exit 1; }
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Invalid release tag"; exit 1; }
+          [[ "$OWNER_APPROVED_HASH" =~ ^[a-f0-9]{64}$ ]] || { echo "::error::Invalid APK SHA256"; exit 1; }
+          [[ "$SIGNED_DEVICE_ACCEPTANCE" == "SIGNED_APK_TESTED" ]] || {
+            echo "::error::Signed APK has not been explicitly accepted after physical-device testing"
+            exit 1
+          }
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "::error::Tag already exists; refusing overwrite or re-release"
+            exit 1
+          fi
+      - name: Independently verify signing run, CI and artifact origin
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID" > "$RUNNER_TEMP/source-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/signed-candidate.yml" > "$RUNNER_TEMP/signing-workflow.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID/jobs?per_page=100" > "$RUNNER_TEMP/source-jobs.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID/artifacts?per_page=100" > "$RUNNER_TEMP/source-artifacts.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/android.yml/runs?head_sha=$GITHUB_SHA&event=push&per_page=30" > "$RUNNER_TEMP/main-ci.json"
+          python3 scripts/verify_release_candidate.py \
+            --repository "$GITHUB_REPOSITORY" --head-sha "$GITHUB_SHA" --run-id "$CANDIDATE_RUN_ID" \
+            --run-json "$RUNNER_TEMP/source-run.json" \
+            --workflow-json "$RUNNER_TEMP/signing-workflow.json" \
+            --jobs-json "$RUNNER_TEMP/source-jobs.json" \
+            --artifacts-json "$RUNNER_TEMP/source-artifacts.json" \
+            --ci-json "$RUNNER_TEMP/main-ci.json"
+      - name: Download the exact signed candidate from the verified workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh run download "$CANDIDATE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name night-calendar-signed-candidate --dir signed-candidate
+      - name: Independently validate signed APK bytes, signer and version
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$sdkmanager"
+          yes | "$sdkmanager" --licenses >/dev/null || true
+          "$sdkmanager" "build-tools;35.0.0"
+          python3 scripts/verify_release_candidate.py \
+            --repository "$GITHUB_REPOSITORY" --head-sha "$GITHUB_SHA" \
+            --apk-dir signed-candidate --expected-digest "$OWNER_APPROVED_HASH" \
+            --tag "$RELEASE_TAG" --aapt "$ANDROID_HOME/build-tools/35.0.0/aapt" \
+            --apksigner "$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          mkdir -p publish
+          cp signed-candidate/NIGHT_CALENDAR_candidate.apk "publish/NIGHT_CALENDAR_${RELEASE_TAG}.apk"
+          (cd publish && sha256sum "NIGHT_CALENDAR_${RELEASE_TAG}.apk" > SHA256SUMS.txt)
+          echo "Owner-approved APK SHA256: $OWNER_APPROVED_HASH" >> "$GITHUB_STEP_SUMMARY"
+      - name: Publish GitHub Release once, using that exact verified APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/night-calendar-release-notes.md" <<EOF
+          NIGHT CALENDAR ${RELEASE_TAG}
+
+          - Japanese six-day calendar (六曜) with supported year warnings
+          - Japanese holidays (2026-2027), color-coded weekdays
+          - Android device calendar viewing and calendar-intent event actions
+          - Dark/light appearance and local-only device diagnostics
+          - No cloud data upload from the app
+
+          Source commit: ${GITHUB_SHA}
+          Verified signed-candidate run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${CANDIDATE_RUN_ID}
+          Device acceptance recorded by authenticated repository owner.
+          EOF
+          gh release create "$RELEASE_TAG" \
+            "publish/NIGHT_CALENDAR_${RELEASE_TAG}.apk" publish/SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "NIGHT CALENDAR $RELEASE_TAG" \
+            --notes-file "$RUNNER_TEMP/night-calendar-release-notes.md" \
+            --latest
+          echo "Release published: https://github.com/$GITHUB_REPOSITORY/releases/tag/$RELEASE_TAG" >> "$GITHUB_STEP_SUMMARY"
