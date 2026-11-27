@@ -46,11 +46,19 @@ jobs:
           test -n "$apk"
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$apk"
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$apk"
+      - name: Enable KVM access
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -r /dev/kvm && test -w /dev/kvm
       - name: Android emulator install and launch smoke test
+        id: emulator_smoke
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
           arch: x86_64
+          emulator-boot-timeout: 600
           script: |
             set -eu
             apk=$(find app/build/outputs/apk/debug -name '*.apk' -print -quit)
@@ -68,9 +76,10 @@ jobs:
         if: always()
         shell: bash
         run: |
-          if [ "${{ steps.android_build.outcome }}" = "success" ]; then
+          if [ "${{ job.status }}" = "success" ] && [ "${{ steps.emulator_smoke.outcome }}" = "success" ]; then
             python3 scripts/ci_diagnose.py --log night-calendar-build.log --out night-core-diagnosis.json --success
           else
+            echo 'CI gate failed or skipped; emulator outcome: ${{ steps.emulator_smoke.outcome }}' >> night-calendar-build.log
             python3 scripts/ci_diagnose.py --log night-calendar-build.log --out night-core-diagnosis.json
           fi
           cat night-core-diagnosis.json >> "$GITHUB_STEP_SUMMARY"
