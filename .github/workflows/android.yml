@@ -16,11 +16,16 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Install Android SDK
+        id: android_sdk
+        shell: bash
         run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          test -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"
+          set -o pipefail
+          {
+            echo "ANDROID_HOME=$ANDROID_HOME"
+            test -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+            yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+            "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"
+          } 2>&1 | tee night-calendar-build.log
       - name: Install Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -32,7 +37,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          gradle --no-daemon :app:assembleDebug :app:testDebugUnitTest 2>&1 | tee night-calendar-build.log
+          gradle --no-daemon :app:assembleDebug :app:testDebugUnitTest 2>&1 | tee -a night-calendar-build.log
       - name: Classify build result
         if: always()
         shell: bash
