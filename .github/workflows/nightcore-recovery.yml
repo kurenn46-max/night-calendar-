@@ -1,0 +1,152 @@
+name: NIGHT CORE Recovery
+on:
+  workflow_run:
+    workflows: ["Android APK"]
+    types: [completed]
+permissions:
+  actions: read
+  contents: write
+  pull-requests: write
+  issues: write
+concurrency:
+  group: nightcore-repair-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+jobs:
+  recover:
+    if: >-
+      github.event.workflow_run.conclusion == 'failure' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      repair_branch: ${{ steps.publish.outputs.repair_branch }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Avoid repairing an obsolete main commit
+        id: current
+        env:
+          FAILED_SHA: ${{ github.event.workflow_run.head_sha }}
+        shell: bash
+        run: |
+          if [ "$(git rev-parse HEAD)" = "$FAILED_SHA" ]; then
+            echo 'current=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'main advanced; obsolete failures are not patched' >> "$GITHUB_STEP_SUMMARY"
+            echo 'current=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Retrieve CI diagnostics
+        if: steps.current.outputs.current == 'true'
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: night-core-build-diagnostics
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/nightcore-evidence
+      - name: Validate safe recovery engine
+        if: steps.current.outputs.current == 'true'
+        run: python3 -m unittest discover -s scripts -p 'test_nightcore_repair.py' -v
+      - name: Propose deterministic recovery
+        if: steps.current.outputs.current == 'true'
+        id: proposal
+        shell: bash
+        run: |
+          python3 scripts/nightcore_repair.py \
+            --diagnosis "$RUNNER_TEMP/nightcore-evidence/night-core-diagnosis.json" \
+            --workflow .github/workflows/android.yml \
+            --result "$RUNNER_TEMP/nightcore-result.json"
+          if python3 -c 'import json,os; exit(not json.load(open(os.environ["RUNNER_TEMP"]+"/nightcore-result.json"))["proposed"])'; then
+            echo 'proposed=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'proposed=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Open review-only repair PR
+        id: publish
+        if: steps.proposal.outputs.proposed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FAILED_SHA: ${{ github.event.workflow_run.head_sha }}
+          SOURCE_RUN: ${{ github.event.workflow_run.html_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$FAILED_SHA" =~ ^[a-f0-9]{40}$ ]]
+          BRANCH="nightcore/sdk-fallback-${FAILED_SHA:0:12}"
+          if git ls-remote --heads origin "$BRANCH" | grep -q .; then
+            echo 'Repair branch already exists; stop to avoid a retry loop.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git config user.name 'night-core-bot'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -c "$BRANCH"
+          git add .github/workflows/android.yml
+          git commit -m 'fix(ci): propose bounded SDK manager path fallback'
+          git push origin "HEAD:refs/heads/$BRANCH"
+          cat > "$RUNNER_TEMP/repair-pr.md" <<EOF
+          NIGHT CORE deterministic repair proposal from failed main-branch CI.
+
+          - Diagnostic: Android SDK executable path
+          - Patch: fall back to runner PATH if expected SDK manager path is absent
+          - Source run: $SOURCE_RUN
+          - Safety: review only; no auto-merge, no AI model or paid API
+          - Validation: separate branch CI requested; do not merge without green checks
+          EOF
+          if gh pr create --base main --head "$BRANCH" --title "NIGHT CORE: review SDK path fallback" --body-file "$RUNNER_TEMP/repair-pr.md"; then
+            echo "Repair PR created: $BRANCH" >> "$GITHUB_STEP_SUMMARY"
+            echo "repair_branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          else
+            echo 'PR creation unavailable; branch is preserved for review.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Open deduplicated diagnosis issue when no safe patch
+        if: steps.proposal.outputs.proposed == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FAILED_SHA: ${{ github.event.workflow_run.head_sha }}
+          SOURCE_RUN: ${{ github.event.workflow_run.html_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$FAILED_SHA" =~ ^[a-f0-9]{40}$ ]]
+          TITLE="[NIGHT CORE] CI triage ${FAILED_SHA:0:12}"
+          if gh issue list --state all --search "\"$TITLE\" in:title" --json title --jq '.[].title' | grep -Fxq "$TITLE"; then
+            echo 'Triage issue already exists' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          python3 - "$RUNNER_TEMP/nightcore-result.json" "$RUNNER_TEMP/triage.md" "$SOURCE_RUN" <<'PY'
+          import json, sys
+          result = json.load(open(sys.argv[1]))
+          with open(sys.argv[2], 'w') as f:
+              f.write('NIGHT CORE CI failure requires review.\n\n')
+              f.write('- Category: ' + result['category'] + '\n')
+              f.write('- Playbook: ' + result['rule'] + '\n')
+              f.write('- Source run: ' + sys.argv[3] + '\n')
+              f.write('- Logs: read source run artifacts (no raw log text copied into this public issue)\n')
+              f.write('- No automatic code changes made.\n')
+          PY
+          gh issue create --title "$TITLE" --body-file "$RUNNER_TEMP/triage.md"
+
+  dispatch_review_ci:
+    name: Trigger review-only repair CI
+    needs: recover
+    if: needs.recover.outputs.repair_branch != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Request Android APK CI on proposed repair branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          REPAIR_BRANCH: ${{ needs.recover.outputs.repair_branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$REPAIR_BRANCH" =~ ^nightcore/sdk-fallback-[a-f0-9]{12}$ ]]
+          gh workflow run android.yml --ref "$REPAIR_BRANCH"
+          echo "Android APK review build requested on $REPAIR_BRANCH" >> "$GITHUB_STEP_SUMMARY"
