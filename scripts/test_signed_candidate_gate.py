@@ -57,7 +57,7 @@ class CandidateGatePolicyTests(unittest.TestCase):
     def test_signed_release_is_installed_and_relaunched_on_emulator(self):
         rehearsal = WORKFLOW.split("  signing_rehearsal:", 1)[1]
         self.assertIn("reactivecircus/android-emulator-runner@v2", rehearsal)
-        self.assertIn("api-level: 35", rehearsal)
+        self.assertIn("api-level: 36", rehearsal)
         self.assertIn("script: bash scripts/release_emulator_smoke.sh", rehearsal)
         self.assertIn('export EXPECTED_CERT_SHA256="$trusted_fingerprint"', rehearsal)
         self.assertIn("Delete ephemeral signed APK", rehearsal)
