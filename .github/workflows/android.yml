@@ -65,19 +65,7 @@ jobs:
           api-level: 35
           arch: x86_64
           emulator-boot-timeout: 600
-          script: |
-            set -eu
-            apk=$(find app/build/outputs/apk/debug -name '*.apk' -print -quit)
-            pkg=$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$apk" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
-            test -n "$pkg"
-            adb install "$apk"
-            adb shell monkey -p "$pkg" -c android.intent.category.LAUNCHER 1
-            sleep 5
-            adb shell pidof "$pkg"
-            adb shell am force-stop "$pkg"
-            adb shell monkey -p "$pkg" -c android.intent.category.LAUNCHER 1
-            sleep 3
-            adb shell pidof "$pkg"
+          script: bash scripts/android_smoke.sh
       - name: Classify build result
         if: always()
         shell: bash
