@@ -29,9 +29,9 @@ class MainActivity : Activity() {
     private lateinit var eventButtons: LinearLayout
     private val japanese = Locale.JAPAN
     private var dark = false
-    private val foreground get() = if (dark) Color.rgb(235, 235, 235) else Color.BLACK
-    private val secondary get() = if (dark) Color.rgb(190, 190, 190) else Color.DKGRAY
-    private val background get() = if (dark) Color.rgb(24, 24, 28) else Color.WHITE
+    private val nightForegroundColor get() = if (dark) Color.rgb(235, 235, 235) else Color.BLACK
+    private val nightSecondaryColor get() = if (dark) Color.rgb(190, 190, 190) else Color.DKGRAY
+    private val nightBackgroundColor get() = if (dark) Color.rgb(24, 24, 28) else Color.WHITE
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -46,14 +46,14 @@ class MainActivity : Activity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(16, 28, 16, 12)
-            setBackgroundColor(background)
+            setBackgroundColor(nightBackgroundColor)
         }
         val navigation = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
         val previous = Button(this).apply { text = "‹"; setOnClickListener { moveMonth(-1) } }
         heading = TextView(this).apply {
             textSize = 23f
             gravity = Gravity.CENTER
-            setTextColor(foreground)
+            setTextColor(nightForegroundColor)
         }
         val next = Button(this).apply { text = "›"; setOnClickListener { moveMonth(1) } }
         navigation.addView(previous)
@@ -79,7 +79,7 @@ class MainActivity : Activity() {
         })
         eventSummary = TextView(this).apply {
             textSize = 14f
-            setTextColor(secondary)
+            setTextColor(nightSecondaryColor)
             setPadding(8, 16, 8, 8)
         }
         root.addView(eventSummary)
@@ -100,7 +100,7 @@ class MainActivity : Activity() {
         root.addView(TextView(this).apply {
             text = "六曜・祝日判定は開発中です"
             textSize = 13f
-            setTextColor(secondary)
+            setTextColor(nightSecondaryColor)
         })
         setContentView(root)
         render()
@@ -181,7 +181,7 @@ class MainActivity : Activity() {
             setTextColor(when (column) {
                 0 -> if (dark) Color.rgb(255, 145, 145) else Color.rgb(195, 45, 45)
                 6 -> if (dark) Color.rgb(145, 185, 255) else Color.rgb(35, 95, 190)
-                else -> foreground
+                else -> nightForegroundColor
             })
             if (today) setBackgroundColor(if (dark) Color.rgb(90, 65, 20) else Color.rgb(255, 235, 180))
             else if (date != null && date == selectedDate) setBackgroundColor(if (dark) Color.rgb(35, 55, 90) else Color.rgb(220, 235, 255))
