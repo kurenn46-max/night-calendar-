@@ -41,6 +41,12 @@ and verifies a deliberately mismatched certificate is rejected. The job deletes
 the disposable key and candidate afterward. **This cannot replace the owner's
 long-lived release signing key** and does not upload a public APK.
 
+The rehearsal also launches an Android 15 emulator, installs the **release variant
+signed by the disposable key**, checks the visible diagnostics UI, force-stops the
+app and launches it again. The test APK is deleted instead of published.
+This catches differences between the release and debug builds that ordinary
+Android instrumentation tests might miss.
+
 Do not attempt a real signed candidate until the rehearsal job is green.
 
 ## Produce a signed candidate
