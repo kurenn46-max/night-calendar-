@@ -84,9 +84,24 @@ if ! [[ "$fingerprint_compact" =~ ^[a-f0-9]{64}$ ]]; then
   exit 1
 fi
 
-printf 'Registering five GitHub Actions environment secrets without clipboard or chat.\n'
+printf 'Checking GitHub release environment before uploading secrets.\n'
+# Existing environment protection rules must never be overwritten by this script.
+if ! gh api "repos/$repo/environments/$environment" >/dev/null 2>&1; then
+  gh api -X PUT "repos/$repo/environments/$environment" --input - >/dev/null <<'ENV_JSON'
+{"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}
+ENV_JSON
+  gh api -X POST "repos/$repo/environments/$environment/deployment-branch-policies" \
+    -f name=main -f type=branch >/dev/null
+fi
+branch_control="$(gh api "repos/$repo/environments/$environment" --jq '.deployment_branch_policy.custom_branch_policies')"
+approved_branches="$(gh api "repos/$repo/environments/$environment/deployment-branch-policies" --jq '[.branch_policies[].name] | join(",")')"
+if [ "$branch_control" != "true" ] || [ "$approved_branches" != "main" ]; then
+  echo "Environment is not restricted to main only. Set it to Selected branches -> main in GitHub Settings." >&2
+  echo "No signing secrets have been uploaded by this run." >&2
+  exit 1
+fi
+printf 'Environment restricted to main. Uploading five encrypted GitHub Secrets.\n'
 # GitHub CLI encrypts secrets locally before uploading. Never use repository-level secrets.
-gh api -X PUT "repos/$repo/environments/$environment" >/dev/null
 base64 -w 0 "$keystore" | gh secret set NIGHT_CALENDAR_KEYSTORE_B64 -R "$repo" -e "$environment"
 printf '%s' "$NIGHT_SIGN_PASS" | gh secret set NIGHT_CALENDAR_KEYSTORE_PASSWORD -R "$repo" -e "$environment"
 printf '%s' "$alias_name" | gh secret set NIGHT_CALENDAR_KEY_ALIAS -R "$repo" -e "$environment"
