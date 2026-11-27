@@ -145,6 +145,7 @@ class MainActivity : Activity() {
     }
 
     private fun moveMonth(delta: Long) {
+        if (::deviceDiagnosticStatus.isInitialized) deviceDiagnosticStatus.visibility = View.GONE
         month = month.plusMonths(delta)
         selectedDate = month.atDay(selectedDate.dayOfMonth.coerceAtMost(month.lengthOfMonth()))
         render()
@@ -238,7 +239,11 @@ class MainActivity : Activity() {
             })
             if (isToday) setBackgroundColor(if (dark) Color.rgb(90, 65, 20) else Color.rgb(255, 235, 180))
             else if (date != null && date == selectedDate) setBackgroundColor(if (dark) Color.rgb(35, 55, 90) else Color.rgb(220, 235, 255))
-            if (date != null) setOnClickListener { selectedDate = date; render() }
+            if (date != null) setOnClickListener {
+                if (::deviceDiagnosticStatus.isInitialized) deviceDiagnosticStatus.visibility = View.GONE
+                selectedDate = date
+                render()
+            }
         }
         calendar.addView(cell, GridLayout.LayoutParams().apply {
             width = 0
