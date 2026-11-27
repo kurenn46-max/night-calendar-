@@ -26,6 +26,7 @@ class MainActivity : Activity() {
     private lateinit var heading: TextView
     private lateinit var calendar: GridLayout
     private lateinit var eventSummary: TextView
+    private lateinit var eventButtons: LinearLayout
     private val japanese = Locale.JAPAN
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -63,6 +64,8 @@ class MainActivity : Activity() {
             setPadding(8, 16, 8, 8)
         }
         root.addView(eventSummary)
+        eventButtons = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        root.addView(eventButtons)
         root.addView(Button(this).apply {
             text = "選択日の予定を追加"
             setOnClickListener {
@@ -93,11 +96,30 @@ class MainActivity : Activity() {
     private fun render() {
         heading.text = month.format(DateTimeFormatter.ofPattern("yyyy年 M月", japanese))
         calendar.removeAllViews()
+        eventButtons.removeAllViews()
         eventSummary.text = if (checkSelfPermission(Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED) {
             try {
                 val events = DeviceCalendarEvents.onDate(this, selectedDate)
                 if (events.isEmpty()) "$selectedDate の予定はありません"
-                else "$selectedDate の予定: " + events.take(4).joinToString(" / ") { it.title }
+                else {
+                    events.take(8).forEach { event ->
+                        eventButtons.addView(Button(this).apply {
+                            text = event.title + "  ›"
+                            contentDescription = event.title + " の予定を開く"
+                            setOnClickListener {
+                                val intent = Intent(Intent.ACTION_VIEW,
+                                    android.content.ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, event.id))
+                                try {
+                                    startActivity(intent)
+                                } catch (e: android.content.ActivityNotFoundException) {
+                                    android.widget.Toast.makeText(this@MainActivity,
+                                        "予定を開けるアプリがありません", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        })
+                    }
+                    "$selectedDate の予定（" + events.size + "件）"
+                }
             } catch (e: RuntimeException) {
                 "予定を読み込めませんでした"
             }
