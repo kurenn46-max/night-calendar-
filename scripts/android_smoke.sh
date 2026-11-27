@@ -20,8 +20,8 @@ stage=ui-smoke
 timeout 210s "${adb_cmd[@]}" shell am instrument -w -r \
   -e syntheticCalendar true com.nightcalendar.test/com.nightcalendar.CalendarSmoke \
   | tee "$report"
-grep -Fx 'INSTRUMENTATION_RESULT: calendar_smoke=passed 3/3' "$report"
+grep -Fx 'INSTRUMENTATION_RESULT: calendar_smoke=passed 4/4' "$report"
 grep -Fx 'INSTRUMENTATION_CODE: -1' "$report"
-for scenario in launch navigation-and-rokuyo synthetic-event-display; do
+for scenario in launch device-diagnostic-denied navigation-and-rokuyo synthetic-event-display; do
   grep -Fx "INSTRUMENTATION_STATUS: passed=$scenario" "$report"
 done

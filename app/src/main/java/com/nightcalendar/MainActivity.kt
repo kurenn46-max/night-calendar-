@@ -31,6 +31,7 @@ class MainActivity : Activity() {
     private lateinit var heading: TextView
     private lateinit var calendar: GridLayout
     private lateinit var eventSummary: TextView
+    private lateinit var deviceDiagnosticStatus: TextView
     private lateinit var holidayStatus: TextView
     private lateinit var eventButtons: LinearLayout
     private val japanese = Locale.JAPAN
@@ -96,6 +97,21 @@ class MainActivity : Activity() {
                 else render()
             }
         })
+        root.addView(Button(this).apply {
+            text = "端末診断（送信なし）"
+            contentDescription = "端末内だけでカレンダーの読み込み状態を診断"
+            setOnClickListener {
+                deviceDiagnosticStatus.text = DeviceCalendarDiagnostics.inspect(this@MainActivity, selectedDate)
+                deviceDiagnosticStatus.visibility = View.VISIBLE
+            }
+        })
+        deviceDiagnosticStatus = TextView(this).apply {
+            textSize = 14f
+            setTextColor(nightSecondaryColor)
+            setPadding(8, 8, 8, 8)
+            visibility = View.GONE
+        }
+        root.addView(deviceDiagnosticStatus)
         eventSummary = TextView(this).apply {
             textSize = 14f
             setTextColor(nightSecondaryColor)
@@ -129,12 +145,16 @@ class MainActivity : Activity() {
     }
 
     private fun moveMonth(delta: Long) {
+        if (::deviceDiagnosticStatus.isInitialized) deviceDiagnosticStatus.visibility = View.GONE
         month = month.plusMonths(delta)
         selectedDate = month.atDay(selectedDate.dayOfMonth.coerceAtMost(month.lengthOfMonth()))
         render()
     }
 
     private fun render() {
+        if (::deviceDiagnosticStatus.isInitialized && deviceDiagnosticStatus.visibility == View.VISIBLE) {
+            deviceDiagnosticStatus.text = DeviceCalendarDiagnostics.inspect(this, selectedDate)
+        }
         heading.text = month.format(DateTimeFormatter.ofPattern("yyyy年 M月", japanese))
         holidayStatus.text = listOfNotNull(
             "祝日データ対象外（2026〜2027年）".takeUnless { JapanHolidays.isSupported(month.year) },
@@ -219,7 +239,11 @@ class MainActivity : Activity() {
             })
             if (isToday) setBackgroundColor(if (dark) Color.rgb(90, 65, 20) else Color.rgb(255, 235, 180))
             else if (date != null && date == selectedDate) setBackgroundColor(if (dark) Color.rgb(35, 55, 90) else Color.rgb(220, 235, 255))
-            if (date != null) setOnClickListener { selectedDate = date; render() }
+            if (date != null) setOnClickListener {
+                if (::deviceDiagnosticStatus.isInitialized) deviceDiagnosticStatus.visibility = View.GONE
+                selectedDate = date
+                render()
+            }
         }
         calendar.addView(cell, GridLayout.LayoutParams().apply {
             width = 0

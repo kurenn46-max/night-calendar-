@@ -38,6 +38,11 @@ class CalendarSmoke : Instrumentation() {
             awaitNode("カレンダーのアクセス許可が必要です")
             passed()
 
+            stage = "device-diagnostic-denied"
+            click("端末診断（送信なし）")
+            awaitNode("端末診断：カレンダーの読み込み権限がありません。上のボタンから許可してください。")
+            passed()
+
             stage = "navigation-and-rokuyo"
             val targetMonth = YearMonth.from(eventDate)
             val steps = ChronoUnit.MONTHS.between(YearMonth.now(), targetMonth).toInt()
@@ -58,11 +63,15 @@ class CalendarSmoke : Instrumentation() {
                 awaitNode("$eventTitle の予定を開く")
                 click("2026-02-18 友引")
                 awaitNode("2026-02-18 の予定はありません")
+                click("端末診断（送信なし）")
+                awaitNodeContaining("端末診断：権限あり")
+                awaitNodeContaining("登録カレンダー：")
+                awaitNodeContaining("の予定：")
             } finally {
                 asCalendarWriter { targetContext.contentResolver.delete(asLocalSyncAdapter(calendar), null, null) }
             }
             passed()
-            results.putString("calendar_smoke", "passed 3/3")
+            results.putString("calendar_smoke", "passed 4/4")
             finish(Activity.RESULT_OK, results)
         } catch (failure: Exception) {
             results.putString("calendar_smoke", "failed $stage (${failure.javaClass.simpleName})")
@@ -83,6 +92,21 @@ class CalendarSmoke : Instrumentation() {
             SystemClock.sleep(150)
         }
         error("Expected visible UI element: $label")
+    }
+
+    private fun awaitNodeContaining(fragment: String): AccessibilityNodeInfo {
+        val deadline = SystemClock.uptimeMillis() + 10_000
+        while (SystemClock.uptimeMillis() < deadline) {
+            val node = uiAutomation.rootInActiveWindow?.findAccessibilityNodeInfosByText(fragment)
+                ?.firstOrNull {
+                    it.isVisibleToUser &&
+                        (it.text?.toString()?.contains(fragment) == true ||
+                         it.contentDescription?.toString()?.contains(fragment) == true)
+                }
+            if (node != null) return node
+            SystemClock.sleep(150)
+        }
+        error("Expected visible UI text fragment: $fragment")
     }
 
     private fun click(label: String) {
