@@ -5,6 +5,7 @@ on:
       - '.github/workflows/signed-candidate.yml'
       - 'scripts/test_signed_candidate_gate.py'
       - 'scripts/sign_release_candidate.sh'
+      - 'scripts/release_emulator_smoke.sh'
   workflow_dispatch:
 permissions:
   contents: read
@@ -128,7 +129,7 @@ jobs:
           export KEY_PASSWORD="$KEYSTORE_PASSWORD"
           export KEY_ALIAS='ci-only-throwaway'
           test_key="$RUNNER_TEMP/nightcalendar-ci-only.jks"
-          trap 'rm -f "$test_key"; rm -rf signed-candidate' EXIT
+          trap 'rm -f "$test_key"' EXIT
           keytool -genkeypair -noprompt -storetype PKCS12 -keystore "$test_key" \
             -alias "$KEY_ALIAS" -keyalg RSA -keysize 2048 -validity 2 \
             -storepass "$KEYSTORE_PASSWORD" -keypass "$KEY_PASSWORD" \
@@ -137,6 +138,7 @@ jobs:
           export EXPECTED_CERT_SHA256="$(keytool -exportcert -rfc -keystore "$test_key" \
             -alias "$KEY_ALIAS" -storepass "$KEYSTORE_PASSWORD" \
             | openssl x509 -noout -fingerprint -sha256 | cut -d= -f2)"
+          trusted_fingerprint="$EXPECTED_CERT_SHA256"
           bash scripts/sign_release_candidate.sh
           (cd signed-candidate && sha256sum -c SHA256SUMS.txt)
           test -s signed-candidate/NIGHT_CALENDAR_candidate.apk
@@ -147,4 +149,32 @@ jobs:
             exit 1
           fi
           test ! -f signed-candidate/NIGHT_CALENDAR_candidate.apk
-          echo "Disposable-key release-signing rehearsal passed; no APK was published."
+          # Restore trusted fingerprint and build one disposable, signed release APK
+          # for the Android emulator. It is never uploaded or published.
+          export EXPECTED_CERT_SHA256="$trusted_fingerprint"
+          bash scripts/sign_release_candidate.sh
+          (cd signed-candidate && sha256sum -c SHA256SUMS.txt)
+          echo "Disposable-key signing plus wrong-certificate rejection passed."
+
+      - name: Enable KVM for signed release APK smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -r /dev/kvm && test -w /dev/kvm
+      - name: Android 15 signed release APK install, UI and relaunch
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          emulator-boot-timeout: 600
+          script: bash scripts/release_emulator_smoke.sh
+      - name: Delete ephemeral signed APK
+        if: always()
+        shell: bash
+        run: |
+          rm -rf signed-candidate
+          rm -f "$RUNNER_TEMP/nightcalendar-ci-only.jks"
+
