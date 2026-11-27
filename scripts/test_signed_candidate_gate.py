@@ -16,6 +16,17 @@ class CandidateGatePolicyTests(unittest.TestCase):
         self.assertNotIn("releases: write", WORKFLOW)
         self.assertNotIn("permissions:\n  contents: write", WORKFLOW)
 
+    def test_real_signing_must_run_only_from_reviewed_main(self):
+        self.assertIn(
+            "if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'",
+            WORKFLOW,
+        )
+        # Pull-request runs must never read a production signing environment.
+        signing = WORKFLOW.split("  sign_candidate:", 1)[1].split("  signing_rehearsal:", 1)[0]
+        self.assertIn("environment: release-candidate", signing)
+        self.assertIn("needs: policy", signing)
+        self.assertNotIn("contents: write", signing)
+
     def test_manual_signing_requires_secrets_and_environment(self):
         for name in ("KEYSTORE_B64", "KEYSTORE_PASSWORD", "KEY_ALIAS", "KEY_PASSWORD",
                      "EXPECTED_CERT_SHA256"):
