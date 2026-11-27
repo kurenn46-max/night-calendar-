@@ -21,7 +21,8 @@ jobs:
 
   sign_candidate:
     name: Sign candidate APK but do not publish
-    if: github.event_name == 'workflow_dispatch'
+    # Only the reviewed main branch may access owner-managed signing settings.
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     needs: policy
     runs-on: ubuntu-24.04
     timeout-minutes: 18
