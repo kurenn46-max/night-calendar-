@@ -1,34 +1,27 @@
 #!/usr/bin/env bash
-# Runs as ONE shell invocation: the Android emulator action executes script lines
-# separately, so APK and package variables must not span separate script lines.
+# The emulator action must invoke the whole test as one shell process.
 set -Eeuo pipefail
 
-on_error() {
-  echo "::error::Android emulator smoke test failed (exit code $?)"
-  adb logcat -d -t 150 2>&1 | tail -150 || true
-}
-trap on_error ERR
+adb_cmd=(adb -e)
+app=app/build/outputs/apk/debug/app-debug.apk
+test_apk=app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+report=night-calendar-emulator.log
+stage=adb
+trap 'echo "NIGHT CALENDAR QA: $stage failed (exit $?)" >&2' ERR
 
-apk="$(find app/build/outputs/apk/debug -name '*.apk' -type f -print -quit)"
-if [ -z "$apk" ] || [ ! -f "$apk" ]; then
-  echo "::error::Debug APK not found"
-  exit 1
-fi
-aapt="$ANDROID_HOME/build-tools/35.0.0/aapt"
-pkg="$("$aapt" dump badging "$apk" | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n 1)"
-if [ -z "$pkg" ]; then
-  echo "::error::Could not extract APK package name from $apk"
-  exit 1
-fi
-echo "Testing Android package: $pkg"
-adb wait-for-device
-adb install -r "$apk"
-for attempt in 1 2; do
-  adb shell monkey -p "$pkg" -c android.intent.category.LAUNCHER 1
-  sleep 5
-  adb shell pidof "$pkg"
-  if [ "$attempt" -eq 1 ]; then
-    adb shell am force-stop "$pkg"
-  fi
+# -e excludes physical devices. Use only the fresh CI emulator for fixtures.
+timeout 60s "${adb_cmd[@]}" wait-for-device
+[[ $(timeout 10s "${adb_cmd[@]}" shell getprop ro.kernel.qemu | tr -d '\r') == 1 ]]
+stage=install
+timeout 60s "${adb_cmd[@]}" install -r "$app"
+timeout 60s "${adb_cmd[@]}" install -r -t "$test_apk"
+
+stage=ui-smoke
+timeout 210s "${adb_cmd[@]}" shell am instrument -w -r \
+  -e syntheticCalendar true com.nightcalendar.test/com.nightcalendar.CalendarSmoke \
+  | tee "$report"
+grep -Fx 'INSTRUMENTATION_RESULT: calendar_smoke=passed 3/3' "$report"
+grep -Fx 'INSTRUMENTATION_CODE: -1' "$report"
+for scenario in launch navigation-and-rokuyo synthetic-event-display; do
+  grep -Fx "INSTRUMENTATION_STATUS: passed=$scenario" "$report"
 done
-echo "NIGHT CORE: Android emulator install/launch smoke test passed"
