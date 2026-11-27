@@ -5,6 +5,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = (ROOT / ".github/workflows/signed-candidate.yml").read_text(encoding="utf-8")
 SCRIPT = (ROOT / "scripts/sign_release_candidate.sh").read_text(encoding="utf-8")
+RELEASE_SMOKE = (ROOT / "scripts/release_emulator_smoke.sh").read_text(encoding="utf-8")
 
 
 class CandidateGatePolicyTests(unittest.TestCase):
@@ -50,6 +51,21 @@ class CandidateGatePolicyTests(unittest.TestCase):
         self.assertIn("sha256sum -c SHA256SUMS.txt", rehearsal)
         self.assertIn("The signer accepted a mismatched certificate", rehearsal)
         self.assertIn("test ! -f signed-candidate/NIGHT_CALENDAR_candidate.apk", rehearsal)
+        self.assertNotIn("secrets.", rehearsal)
+        self.assertNotIn("upload-artifact", rehearsal)
+
+    def test_signed_release_is_installed_and_relaunched_on_emulator(self):
+        rehearsal = WORKFLOW.split("  signing_rehearsal:", 1)[1]
+        self.assertIn("reactivecircus/android-emulator-runner@v2", rehearsal)
+        self.assertIn("api-level: 35", rehearsal)
+        self.assertIn("script: bash scripts/release_emulator_smoke.sh", rehearsal)
+        self.assertIn('export EXPECTED_CERT_SHA256="$trusted_fingerprint"', rehearsal)
+        self.assertIn("Delete ephemeral signed APK", rehearsal)
+        self.assertIn("rm -rf signed-candidate", rehearsal)
+        self.assertIn('adb -e install -r "$apk"', RELEASE_SMOKE)
+        self.assertIn("adb -e shell am start -W", RELEASE_SMOKE)
+        self.assertIn('adb -e shell am force-stop "$package"', RELEASE_SMOKE)
+        self.assertIn("端末内だけでカレンダーの読み込み状態を診断", RELEASE_SMOKE)
         self.assertNotIn("secrets.", rehearsal)
         self.assertNotIn("upload-artifact", rehearsal)
 
