@@ -4,7 +4,7 @@ on:
     workflows: ["Android APK"]
     types: [completed]
 permissions:
-  actions: write
+  actions: read
   contents: write
   pull-requests: write
   issues: write
