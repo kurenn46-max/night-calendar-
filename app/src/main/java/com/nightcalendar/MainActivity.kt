@@ -1,5 +1,7 @@
 package com.nightcalendar
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.app.Activity
 import android.graphics.Color
 import android.os.Bundle
@@ -19,6 +21,7 @@ class MainActivity : Activity() {
     private var month: YearMonth = YearMonth.now()
     private lateinit var heading: TextView
     private lateinit var calendar: GridLayout
+    private lateinit var eventSummary: TextView
     private val japanese = Locale.JAPAN
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -42,11 +45,24 @@ class MainActivity : Activity() {
         root.addView(navigation)
         calendar = GridLayout(this).apply { columnCount = 7 }
         root.addView(calendar)
+        root.addView(Button(this).apply {
+            text = "端末のカレンダーを読み込む"
+            setOnClickListener {
+                if (checkSelfPermission(Manifest.permission.READ_CALENDAR) != PackageManager.PERMISSION_GRANTED)
+                    requestPermissions(arrayOf(Manifest.permission.READ_CALENDAR), 100)
+                else render()
+            }
+        })
+        eventSummary = TextView(this).apply {
+            textSize = 14f
+            setTextColor(Color.DKGRAY)
+            setPadding(8, 16, 8, 8)
+        }
+        root.addView(eventSummary)
         root.addView(TextView(this).apply {
-            text = "六曜・祝日・Googleカレンダー同期は開発中です"
+            text = "六曜・祝日判定は開発中です"
             textSize = 13f
             setTextColor(Color.DKGRAY)
-            setPadding(8, 28, 8, 8)
         })
         setContentView(root)
         render()
@@ -55,6 +71,15 @@ class MainActivity : Activity() {
     private fun render() {
         heading.text = month.format(DateTimeFormatter.ofPattern("yyyy年 M月", japanese))
         calendar.removeAllViews()
+        eventSummary.text = if (checkSelfPermission(Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED) {
+            try {
+                val events = DeviceCalendarEvents.onDate(this, LocalDate.now())
+                if (events.isEmpty()) "今日の予定はありません"
+                else "今日の予定: " + events.take(4).joinToString(" / ") { it.title }
+            } catch (e: RuntimeException) {
+                "予定を読み込めませんでした"
+            }
+        } else "カレンダーのアクセス許可が必要です"
         val headers = listOf("日", "月", "火", "水", "木", "金", "土")
         for ((index, name) in headers.withIndex()) {
             addCell(name, index, false)
@@ -67,6 +92,11 @@ class MainActivity : Activity() {
             val label = if (inMonth) date.dayOfMonth.toString() else ""
             addCell(label, slot % 7, inMonth && date == today)
         }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 100) render()
     }
 
     private fun addCell(label: String, column: Int, today: Boolean) {
