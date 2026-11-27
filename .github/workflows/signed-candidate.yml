@@ -1,0 +1,150 @@
+name: NIGHT CALENDAR Signed Candidate (manual, not public release)
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/signed-candidate.yml'
+      - 'scripts/test_signed_candidate_gate.py'
+      - 'scripts/sign_release_candidate.sh'
+  workflow_dispatch:
+permissions:
+  contents: read
+
+jobs:
+  policy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check offline signing policy
+        run: python3 -m unittest discover -s scripts -p 'test_signed_candidate_gate.py' -v
+
+  sign_candidate:
+    name: Sign candidate APK but do not publish
+    if: github.event_name == 'workflow_dispatch'
+    needs: policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    environment: release-candidate
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Require owner-managed signing secrets
+        shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.NIGHT_CALENDAR_KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.NIGHT_CALENDAR_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.NIGHT_CALENDAR_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.NIGHT_CALENDAR_KEY_PASSWORD }}
+          EXPECTED_CERT_SHA256: ${{ secrets.NIGHT_CALENDAR_EXPECTED_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          for name in KEYSTORE_B64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD EXPECTED_CERT_SHA256; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Required signing setting missing: $name"
+              exit 1
+            fi
+          done
+          if ! [[ "$EXPECTED_CERT_SHA256" =~ ^([[:xdigit:]]{2}:?){31}[[:xdigit:]]{2}$ ]]; then
+            echo "::error::Invalid expected signing certificate fingerprint"
+            exit 1
+          fi
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$sdkmanager"
+          yes | "$sdkmanager" --licenses >/dev/null || true
+          "$sdkmanager" "platforms;android-35" "build-tools;35.0.0"
+      - name: Compile and check release candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon :app:assembleRelease :app:testReleaseUnitTest :app:lintRelease
+      - name: Sign, validate certificate and package identity
+        shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.NIGHT_CALENDAR_KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.NIGHT_CALENDAR_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.NIGHT_CALENDAR_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.NIGHT_CALENDAR_KEY_PASSWORD }}
+          EXPECTED_CERT_SHA256: ${{ secrets.NIGHT_CALENDAR_EXPECTED_CERT_SHA256 }}
+        run: |
+          bash scripts/sign_release_candidate.sh
+          echo "Signed release candidate verified; manual physical-device approval remains required." >> "$GITHUB_STEP_SUMMARY"
+      - name: Store verified candidate without publishing a release
+        uses: actions/upload-artifact@v4
+        with:
+          name: night-calendar-signed-candidate
+          path: signed-candidate/
+          if-no-files-found: error
+          retention-days: 14
+
+  signing_rehearsal:
+    name: Rehearse release signing with disposable CI-only key
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Install required Android SDK packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$sdkmanager"
+          yes | "$sdkmanager" --licenses >/dev/null || true
+          "$sdkmanager" "platforms;android-35" "build-tools;35.0.0"
+      - name: Compile unsigned release APK and run unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon :app:assembleRelease :app:testReleaseUnitTest :app:lintRelease
+      - name: Exercise the same signing code with a throwaway local key
+        shell: bash
+        run: |
+          set -euo pipefail
+          # This local-only key is intentionally disposable and must NEVER sign a published APK.
+          export KEYSTORE_PASSWORD='temporary-ci-only-pass-not-a-release-secret'
+          export KEY_PASSWORD="$KEYSTORE_PASSWORD"
+          export KEY_ALIAS='ci-only-throwaway'
+          test_key="$RUNNER_TEMP/nightcalendar-ci-only.jks"
+          trap 'rm -f "$test_key"; rm -rf signed-candidate' EXIT
+          keytool -genkeypair -noprompt -storetype PKCS12 -keystore "$test_key" \
+            -alias "$KEY_ALIAS" -keyalg RSA -keysize 2048 -validity 2 \
+            -storepass "$KEYSTORE_PASSWORD" -keypass "$KEY_PASSWORD" \
+            -dname 'CN=NIGHT CALENDAR TEST ONLY'
+          export KEYSTORE_B64="$(base64 -w0 "$test_key")"
+          export EXPECTED_CERT_SHA256="$(keytool -exportcert -rfc -keystore "$test_key" \
+            -alias "$KEY_ALIAS" -storepass "$KEYSTORE_PASSWORD" \
+            | openssl x509 -noout -fingerprint -sha256 | cut -d= -f2)"
+          bash scripts/sign_release_candidate.sh
+          (cd signed-candidate && sha256sum -c SHA256SUMS.txt)
+          test -s signed-candidate/NIGHT_CALENDAR_candidate.apk
+          # A wrong expected signer MUST reject and remove the generated file.
+          export EXPECTED_CERT_SHA256="$(printf '0%.0s' {1..64})"
+          if bash scripts/sign_release_candidate.sh; then
+            echo "::error::The signer accepted a mismatched certificate."
+            exit 1
+          fi
+          test ! -f signed-candidate/NIGHT_CALENDAR_candidate.apk
+          echo "Disposable-key release-signing rehearsal passed; no APK was published."
