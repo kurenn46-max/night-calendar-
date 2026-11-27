@@ -93,7 +93,7 @@ jobs:
     name: Rehearse release signing with disposable CI-only key
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
-    timeout-minutes: 18
+    timeout-minutes: 22
     permissions:
       contents: read
     steps:
@@ -156,20 +156,28 @@ jobs:
           (cd signed-candidate && sha256sum -c SHA256SUMS.txt)
           echo "Disposable-key signing plus wrong-certificate rejection passed."
 
-      - name: Enable KVM for signed release APK smoke
+      - name: Configure Android emulator accelerator (KVM or TCG fallback)
         shell: bash
         run: |
           set -euo pipefail
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-          test -r /dev/kvm && test -w /dev/kvm
-      - name: Android 15 signed release APK install, UI and relaunch
+          if [ -e /dev/kvm ]; then
+            echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+            sudo udevadm control --reload-rules || true
+            sudo udevadm trigger --name-match=kvm || true
+          fi
+          if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
+            echo "Android emulator hardware acceleration: KVM available."
+          else
+            echo "::warning::KVM unavailable; attempting slower TCG software CPU emulation."
+            echo "ANDROID_I_WANT_MY_TCG=yes" >> "$GITHUB_ENV"
+          fi
+      - name: Android 16 signed release APK install, UI and relaunch
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 35
+          api-level: 36
           arch: x86_64
-          emulator-boot-timeout: 600
+          emulator-boot-timeout: 900
+          disable-linux-hw-accel: auto
           script: bash scripts/release_emulator_smoke.sh
       - name: Delete ephemeral signed APK
         if: always()

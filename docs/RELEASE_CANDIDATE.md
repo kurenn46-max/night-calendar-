@@ -41,9 +41,13 @@ and verifies a deliberately mismatched certificate is rejected. The job deletes
 the disposable key and candidate afterward. **This cannot replace the owner's
 long-lived release signing key** and does not upload a public APK.
 
-The rehearsal also launches an Android 15 emulator, installs the **release variant
+The rehearsal also launches an Android 16 emulator, installs the **release variant
 signed by the disposable key**, checks the visible diagnostics UI, force-stops the
 app and launches it again. The test APK is deleted instead of published.
+The Android 16 CI runner tries KVM hardware acceleration first and, only if
+KVM is unavailable, attempts slower TCG software emulation. A missing KVM
+device is not an APK defect; the emulator still needs to boot and complete
+install/UI/relaunch checks before CI can pass.
 This catches differences between the release and debug builds that ordinary
 Android instrumentation tests might miss.
 

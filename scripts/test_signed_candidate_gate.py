@@ -57,7 +57,7 @@ class CandidateGatePolicyTests(unittest.TestCase):
     def test_signed_release_is_installed_and_relaunched_on_emulator(self):
         rehearsal = WORKFLOW.split("  signing_rehearsal:", 1)[1]
         self.assertIn("reactivecircus/android-emulator-runner@v2", rehearsal)
-        self.assertIn("api-level: 35", rehearsal)
+        self.assertIn("api-level: 36", rehearsal)
         self.assertIn("script: bash scripts/release_emulator_smoke.sh", rehearsal)
         self.assertIn('export EXPECTED_CERT_SHA256="$trusted_fingerprint"', rehearsal)
         self.assertIn("Delete ephemeral signed APK", rehearsal)
@@ -68,6 +68,16 @@ class CandidateGatePolicyTests(unittest.TestCase):
         self.assertIn("端末内だけでカレンダーの読み込み状態を診断", RELEASE_SMOKE)
         self.assertNotIn("secrets.", rehearsal)
         self.assertNotIn("upload-artifact", rehearsal)
+
+    def test_android16_emulator_can_use_safe_cpu_fallback(self):
+        rehearsal = WORKFLOW.split("  signing_rehearsal:", 1)[1]
+        self.assertIn("api-level: 36", rehearsal)
+        self.assertIn("disable-linux-hw-accel: auto", rehearsal)
+        self.assertIn('if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then', rehearsal)
+        self.assertIn('echo "ANDROID_I_WANT_MY_TCG=yes" >> "$GITHUB_ENV"', rehearsal)
+        self.assertIn("emulator-boot-timeout: 900", rehearsal)
+        self.assertIn("script: bash scripts/release_emulator_smoke.sh", rehearsal)
+        self.assertNotIn("secrets.", rehearsal)
 
     def test_no_release_candidate_artifact_on_failed_signing(self):
         self.assertIn("if-no-files-found: error", WORKFLOW)
