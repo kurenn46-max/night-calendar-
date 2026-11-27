@@ -2,8 +2,9 @@ package com.nightcalendar
 
 import java.time.LocalDate
 
-/** Explicit Japanese national holiday calendar. Outside the supported years,
- * callers must not interpret a null result as a verified non-holiday. */
+/** Cabinet Office national holidays and statutory days off, 2026–2027.
+ * https://www8.cao.go.jp/chosei/shukujitsu/gaiyou.html
+ * Check [isSupported] before treating a date as a verified non-holiday. */
 object JapanHolidays {
     val supportedYears = 2026..2027
     private val dates = mapOf(
