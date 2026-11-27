@@ -38,6 +38,32 @@ jobs:
         run: |
           set -o pipefail
           gradle --no-daemon :app:assembleDebug :app:testDebugUnitTest 2>&1 | tee -a night-calendar-build.log
+      - name: Verify APK signature and package
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=$(find app/build/outputs/apk/debug -name '*.apk' -print -quit)
+          test -n "$apk"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$apk"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$apk"
+      - name: Android emulator install and launch smoke test
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          script: |
+            set -eu
+            apk=$(find app/build/outputs/apk/debug -name '*.apk' -print -quit)
+            pkg=$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$apk" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
+            test -n "$pkg"
+            adb install "$apk"
+            adb shell monkey -p "$pkg" -c android.intent.category.LAUNCHER 1
+            sleep 5
+            adb shell pidof "$pkg"
+            adb shell am force-stop "$pkg"
+            adb shell monkey -p "$pkg" -c android.intent.category.LAUNCHER 1
+            sleep 3
+            adb shell pidof "$pkg"
       - name: Classify build result
         if: always()
         shell: bash
