@@ -26,6 +26,7 @@ class MainActivity : Activity() {
     private lateinit var heading: TextView
     private lateinit var calendar: GridLayout
     private lateinit var eventSummary: TextView
+    private lateinit var holidayStatus: TextView
     private lateinit var eventButtons: LinearLayout
     private val japanese = Locale.JAPAN
     private var dark = false
@@ -97,11 +98,12 @@ class MainActivity : Activity() {
                 }
             }
         })
-        root.addView(TextView(this).apply {
-            text = "六曜・祝日判定は開発中です"
+        holidayStatus = TextView(this).apply {
+            text = ""
             textSize = 13f
             setTextColor(nightSecondaryColor)
-        })
+        }
+        root.addView(holidayStatus)
         setContentView(root)
         render()
     }
@@ -119,6 +121,7 @@ class MainActivity : Activity() {
 
     private fun render() {
         heading.text = month.format(DateTimeFormatter.ofPattern("yyyy年 M月", japanese))
+        holidayStatus.text = if (JapanHolidays.isSupported(month.year)) "六曜は開発中です" else "祝日データ対象外（2026〜2027年）・六曜は開発中です"
         calendar.removeAllViews()
         eventButtons.removeAllViews()
         eventSummary.text = if (checkSelfPermission(Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED) {
@@ -178,9 +181,9 @@ class MainActivity : Activity() {
             textSize = if (today) 22f else 18f
             gravity = Gravity.CENTER
             setPadding(3, 17, 3, 17)
-            setTextColor(when (column) {
-                0 -> if (dark) Color.rgb(255, 145, 145) else Color.rgb(195, 45, 45)
-                6 -> if (dark) Color.rgb(145, 185, 255) else Color.rgb(35, 95, 190)
+            setTextColor(when {
+                column == 0 || (date != null && JapanHolidays.isHoliday(date)) -> if (dark) Color.rgb(255, 145, 145) else Color.rgb(195, 45, 45)
+                column == 6 -> if (dark) Color.rgb(145, 185, 255) else Color.rgb(35, 95, 190)
                 else -> nightForegroundColor
             })
             if (today) setBackgroundColor(if (dark) Color.rgb(90, 65, 20) else Color.rgb(255, 235, 180))
