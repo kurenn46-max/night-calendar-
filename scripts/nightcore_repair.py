@@ -33,7 +33,7 @@ def plan_repair(diagnosis: dict, workflow: str) -> tuple[str | None, str]:
     if diagnosis.get("status") != "failed":
         return None, "not-failed"
     category = diagnosis.get("category")
-    if category not in KNOWN_CATEGORIES:
+    if not isinstance(category, str) or category not in KNOWN_CATEGORIES:
         return None, "invalid-category"
     if category != "android-sdk":
         return None, "no-verified-playbook"
@@ -49,6 +49,31 @@ def plan_repair(diagnosis: dict, workflow: str) -> tuple[str | None, str]:
     return workflow.replace(OLD_SDK, NEW_SDK, 1), "sdkmanager-path-fallback"
 
 
+
+def load_diagnosis(path: Path) -> dict:
+    """Fail closed when CI artifact is absent, malformed, or unexpectedly large."""
+    unknown = {"status": "failed", "category": "unknown", "stage": "unknown", "evidence": []}
+    try:
+        if path.stat().st_size > 64 * 1024:
+            return unknown
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, UnicodeError):
+        return unknown
+    if not isinstance(payload, dict):
+        return unknown
+    category, status, stage = (payload.get("category"), payload.get("status"), payload.get("stage"))
+    if not isinstance(category, str) or category not in KNOWN_CATEGORIES:
+        return unknown
+    if status not in ("failed", "passed") or not isinstance(stage, str):
+        return unknown
+    evidence = payload.get("evidence")
+    if not isinstance(evidence, list) or len(evidence) > 5 or any(
+        not isinstance(line, str) or len(line) > 500 for line in evidence
+    ):
+        return unknown
+    return {"status": status, "category": category, "stage": stage, "evidence": evidence}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--diagnosis", required=True)
@@ -56,16 +81,14 @@ def main() -> None:
     parser.add_argument("--result", required=True)
     args = parser.parse_args()
     diagnosis_path = Path(args.diagnosis)
-    diagnosis = json.loads(diagnosis_path.read_text(encoding="utf-8")) if diagnosis_path.exists() else {
-        "status": "failed", "category": "unknown", "evidence": []
-    }
+    diagnosis = load_diagnosis(diagnosis_path)
     workflow_path = Path(args.workflow)
     original = workflow_path.read_text(encoding="utf-8")
     replacement, rule = plan_repair(diagnosis, original)
     if replacement is not None:
         workflow_path.write_text(replacement, encoding="utf-8")
     result = {"proposed": replacement is not None, "rule": rule,
-              "category": diagnosis.get("category") if diagnosis.get("category") in KNOWN_CATEGORIES else "unknown"}
+              "category": diagnosis["category"]}
     Path(args.result).write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(f"NIGHT CORE: {rule}; proposed={result['proposed']}")
 
