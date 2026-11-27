@@ -47,6 +47,7 @@ bash night-calendar-key.sh
   `NIGHT_CALENDAR_KEY_ALIAS`、`NIGHT_CALENDAR_KEY_PASSWORD`、
   `NIGHT_CALENDAR_EXPECTED_CERT_SHA256`。
 - 登録後は**Secret名だけ**一覧を表示します。値の内容を表示・コピーする必要はありません。
+- `release-candidate` 環境を新規作成する場合は `main` のみ許可する保護ルールも設定します。既存環境で `main` 以外が許可されていたら、**秘密情報を送る前に停止**します。その場合はステップ5の設定を先に直して、同じスクリプトを再実行してください（既存鍵は上書きされません）。
 - 秘密鍵はTermux専用領域 `~/.local/share/night-calendar-signing/night-calendar-release.jks` に残ります。
 
 > 注意：スマホのOS更新・初期化・Termuxのアンインストールで端末内の秘密鍵を失うと、
