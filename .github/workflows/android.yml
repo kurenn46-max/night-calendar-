@@ -25,8 +25,33 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+      - name: Verify NIGHT CORE diagnostics
+        run: python3 -m unittest discover -s scripts -p 'test_ci_diagnose.py' -v
       - name: Build debug APK and test
-        run: gradle --no-daemon :app:assembleDebug :app:testDebugUnitTest
+        id: android_build
+        shell: bash
+        run: |
+          set -o pipefail
+          gradle --no-daemon :app:assembleDebug :app:testDebugUnitTest 2>&1 | tee night-calendar-build.log
+      - name: Classify build result
+        if: always()
+        shell: bash
+        run: |
+          if [ "${{ steps.android_build.outcome }}" = "success" ]; then
+            python3 scripts/ci_diagnose.py --log night-calendar-build.log --out night-core-diagnosis.json --success
+          else
+            python3 scripts/ci_diagnose.py --log night-calendar-build.log --out night-core-diagnosis.json
+          fi
+          cat night-core-diagnosis.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload diagnostics even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: night-core-build-diagnostics
+          path: |
+            night-calendar-build.log
+            night-core-diagnosis.json
+          if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         with:
           name: night-calendar-debug-apk
